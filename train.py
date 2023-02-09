@@ -3,13 +3,16 @@ MNIST Benchmark
 
 Train a simple 2-layer fully connected neural network on MNIST data with PyTorch.
 """
-
 import pytorch_lightning as pl
+import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import DataLoader
 from torchvision import datasets, transforms
+
+pl.seed_everything(1337)
+torch.set_float32_matmul_precision("medium")
 
 
 class Net(pl.LightningModule):
