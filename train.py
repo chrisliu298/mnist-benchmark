@@ -4,22 +4,15 @@ MNIST Benchmark
 Train a simple 2-layer fully connected neural network on MNIST data with PyTorch.
 """
 
-import torch
+import pytorch_lightning as pl
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
+from torch.utils.data import DataLoader
 from torchvision import datasets, transforms
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-print(f"Using device {device}")
-torch.manual_seed(1337)
-if device.type == "cuda":
-    torch.cuda.manual_seed_all(1337)
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = True
 
-
-class Net(nn.Module):
+class Net(pl.LightningModule):
     def __init__(self):
         super(Net, self).__init__()
         self.fc1 = nn.Linear(784, 512)
@@ -29,73 +22,94 @@ class Net(nn.Module):
         x = x.view(-1, 784)
         return self.fc2(F.relu(self.fc1(x)))
 
-
-def train(model, device, train_dataloader, optimizer):
-    """Train the model for one epoch."""
-    model.train()
-    correct = 0
-    total_loss = 0
-    for x, y in train_dataloader:
-        x, y = x.to(device), y.to(device)
-        output = model(x)
-        loss = F.cross_entropy(output, y)
-        total_loss += loss.item()
-        optimizer.zero_grad(set_to_none=True)
-        loss.backward()
-        optimizer.step()
+    def _accuracy(self, output, y):
         pred = output.argmax(dim=1, keepdim=True)
-        correct += pred.eq(y.view_as(pred)).sum().item()
-    return correct / len(train_dataloader.dataset), total_loss / len(train_dataloader)
+        correct = pred.eq(y.view_as(pred)).sum().item()
+        return correct / len(y)
 
+    def evaluate(self, batch, stage=None):
+        x, y = batch
+        output = self(x)
+        loss = F.cross_entropy(output, y)
+        acc = self._accuracy(output, y)
+        if stage is not None:
+            self.log_dict(
+                {f"{stage}_loss": loss, f"{stage}_acc": acc},
+                on_step=True,
+                on_epoch=True,
+                prog_bar=True,
+                logger=True,
+            )
+        return loss, acc
 
-def test(model, device, test_dataloader):
-    """Test the model."""
-    model.eval()
-    correct = 0
-    with torch.no_grad():
-        for x, y in test_dataloader:
-            x, y = x.to(device), y.to(device)
-            output = model(x)
-            pred = output.argmax(dim=1, keepdim=True)
-            correct += pred.eq(y.view_as(pred)).sum().item()
-    return correct / len(test_dataloader.dataset)
+    def training_step(self, batch, batch_idx):
+        loss, acc = self.evaluate(batch, stage="train")
+        return {"loss": loss, "train_acc": acc}
+
+    def validation_step(self, batch, batch_idx):
+        loss, acc = self.evaluate(batch, stage="val")
+        return {"val_loss": loss, "val_acc": acc}
+
+    def test_step(self, batch, batch_idx):
+        loss, acc = self.evaluate(batch, stage="test")
+        return {"test_loss": loss, "test_acc": acc}
+
+    def configure_optimizers(self):
+        return optim.SGD(self.parameters(), lr=0.01, momentum=0.9)
+
+    def prepare_data(self):
+        datasets.MNIST("data", train=True, download=True)
+        datasets.MNIST("data", train=False, download=True)
+
+    def setup(self, stage=None):
+        transform = transforms.Compose(
+            [transforms.ToTensor(), transforms.Normalize((0.1307,), (0.3081,))]
+        )
+        self.train_dataset = datasets.MNIST(
+            "data", train=True, download=False, transform=transform
+        )
+        self.test_dataset = datasets.MNIST(
+            "data", train=False, download=False, transform=transform
+        )
+
+    def train_dataloader(self):
+        return DataLoader(
+            self.train_dataset,
+            batch_size=128,
+            shuffle=True,
+            num_workers=4,
+            pin_memory=True,
+        )
+
+    def val_dataloader(self):
+        return DataLoader(
+            self.test_dataset,
+            batch_size=128,
+            shuffle=False,
+            num_workers=4,
+            pin_memory=True,
+        )
+
+    def test_dataloader(self):
+        return DataLoader(
+            self.test_dataset,
+            batch_size=128,
+            shuffle=False,
+            num_workers=4,
+            pin_memory=True,
+        )
 
 
 def main():
-    # TODO: Add profiler
-    net = Net()
-    net.to(device)
-    train_dataloader = torch.utils.data.DataLoader(
-        datasets.MNIST(
-            "data",
-            train=True,
-            download=True,
-            transform=transforms.Compose(
-                [transforms.ToTensor(), transforms.Normalize((0.1307,), (0.3081,))]
-            ),
-        ),
-        batch_size=128,
-        shuffle=True,
+    model = Net()
+    trainer = pl.Trainer(
+        accelerator="auto",
+        max_epochs=10,
+        benchmark=True,
+        profiler="advanced",
     )
-    test_dataloader = torch.utils.data.DataLoader(
-        datasets.MNIST(
-            "data",
-            train=False,
-            transform=transforms.Compose(
-                [transforms.ToTensor(), transforms.Normalize((0.1307,), (0.3081,))]
-            ),
-        ),
-        batch_size=128,
-        shuffle=False,
-    )
-
-    optimizer = optim.SGD(net.parameters(), lr=0.01, momentum=0.9)
-    for epoch in range(1, 10 + 1):
-        train_acc, train_loss = train(net, device, train_dataloader, optimizer)
-        test_acc = test(net, device, test_dataloader)
-        print(
-            f"Epoch {epoch:02d}: Train Loss: {train_loss:.4f}, Train Acc: {train_acc:.4f}, Test Acc: {test_acc:.4f}"
-        )
+    trainer.fit(model)
+    trainer.test(model)
 
 
 if __name__ == "__main__":
