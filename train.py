@@ -58,56 +58,33 @@ class Net(pl.LightningModule):
     def configure_optimizers(self):
         return optim.SGD(self.parameters(), lr=0.01, momentum=0.9)
 
-    def prepare_data(self):
-        datasets.MNIST("data", train=True, download=True)
-        datasets.MNIST("data", train=False, download=True)
-
-    def setup(self, stage=None):
-        transform = transforms.Normalize((0.1307,), (0.3081,))
-        train_dataset = datasets.MNIST(
-            "data", train=True, download=False, transform=transform
-        )
-        test_dataset = datasets.MNIST(
-            "data", train=False, download=False, transform=transform
-        )
-        x_train, y_train = train_dataset.data, train_dataset.targets
-        x_test, y_test = test_dataset.data, test_dataset.targets
-        x_train, x_test = transform(x_train.float() / 255.0), transform(
-            x_test.float() / 255.0
-        )
-        self.train_dataset = TensorDataset(x_train, y_train)
-        self.test_dataset = TensorDataset(x_test, y_test)
-
-    def train_dataloader(self):
-        return DataLoader(
-            self.train_dataset,
-            batch_size=128,
-            shuffle=True,
-            num_workers=2,
-            pin_memory=True,
-        )
-
-    def val_dataloader(self):
-        return DataLoader(
-            self.test_dataset,
-            batch_size=128,
-            shuffle=False,
-            num_workers=2,
-            pin_memory=True,
-        )
-
-    def test_dataloader(self):
-        return DataLoader(
-            self.test_dataset,
-            batch_size=128,
-            shuffle=False,
-            num_workers=2,
-            pin_memory=True,
-        )
-
 
 def main():
+    transform = transforms.Normalize((0.1307,), (0.3081,))
+    train_dataset = datasets.MNIST(
+        "data", train=True, download=True, transform=transform
+    )
+    test_dataset = datasets.MNIST(
+        "data", train=False, download=True, transform=transform
+    )
+    x_train, y_train = train_dataset.data, train_dataset.targets
+    x_test, y_test = test_dataset.data, test_dataset.targets
+    x_train, x_test = transform(x_train.float() / 255.0), transform(
+        x_test.float() / 255.0
+    )
     model = Net()
+    train_dataloader = DataLoader(
+        TensorDataset(x_train, y_train),
+        batch_size=128,
+        shuffle=True,
+        pin_memory=True,
+    )
+    test_dataloader = DataLoader(
+        TensorDataset(x_test, y_test),
+        batch_size=128,
+        shuffle=False,
+        pin_memory=True,
+    )
     trainer = pl.Trainer(
         accelerator="auto",
         max_epochs=10,
@@ -115,8 +92,8 @@ def main():
         profiler="simple",
         callbacks=[pl.callbacks.TQDMProgressBar(refresh_rate=50)],
     )
-    trainer.fit(model)
-    trainer.test(model)
+    trainer.fit(model, train_dataloaders=train_dataloader)
+    trainer.test(model, dataloaders=test_dataloader)
 
 
 if __name__ == "__main__":
