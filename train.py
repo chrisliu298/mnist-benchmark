@@ -12,7 +12,8 @@ from torch.utils.data import DataLoader
 from torchvision import datasets, transforms
 
 pl.seed_everything(1337)
-torch.set_float32_matmul_precision("medium")
+if torch.cuda.is_available():
+    torch.set_float32_matmul_precision("medium")
 
 
 class Net(pl.LightningModule):
