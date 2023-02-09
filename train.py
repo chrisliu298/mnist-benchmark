@@ -87,6 +87,7 @@ def main():
     )
     trainer = pl.Trainer(
         accelerator="auto",
+        devices="auto",
         max_epochs=10,
         benchmark=True,
         profiler="simple",
