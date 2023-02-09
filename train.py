@@ -110,7 +110,7 @@ def main():
         accelerator="auto",
         max_epochs=10,
         benchmark=True,
-        profiler="advanced",
+        profiler="simple",
         callbacks=[pl.callbacks.TQDMProgressBar(refresh_rate=50)],
     )
     trainer.fit(model)
